@@ -1,0 +1,240 @@
+'use client'
+
+// This is the page for importing contacts.
+// There are 2 types of import - from csv, from linkedin...
+// Using 'isImportedFromLinkedIn' variable, the integrator can switch 2 modes...
+// 
+
+
+import { useState, useEffect, useCallback } from 'react';
+import Navbar from '@/app/components/ui/navbar';
+import { useSession, useSupabaseClient, useUser } from '@supabase/auth-helpers-react';
+import { useRouter } from 'next/navigation';
+import { Stripe, loadStripe } from '@stripe/stripe-js';
+import useNotification from '@/app/components/ui/notification';
+import { useLayoutEffect, useRef } from 'react'
+import Image from 'next/image';
+import ImportContact from '../components/contacts/steps/ImportContact';
+import UploadFile from '../components/contacts/steps/UploadFile';
+import MainContent from '../components/contacts/MainContent';
+import FromLinkedIn from '../components/contacts/FromLinkedIn';
+import FromLinkedinExtractProfile from '../components/contacts/FromLinkedInExtractProfile';
+
+type Person = {
+  LinkedInFullName: string;
+  title: string;
+  company: string;
+  location: string;
+  email: string;
+  phone: string;
+  employees: string;
+  status: string;
+};
+
+const people: Person[] = [
+  {
+    LinkedInFullName: 'Lindsay Walton',
+    title: 'Front-end Developer',
+    company: 'Front-end Developer',
+    location: 'Paris',
+    email: 'lindsay.walton@example.com',
+    phone: 'Front-end Developer',
+    employees: 'Member',
+    status: 'Front-end Developer',
+  },
+  {
+    LinkedInFullName: 'Lindsay Walton',
+    title: 'Front-end Developer',
+    company: 'Front-end Developer',
+    location: 'Paris',
+    email: 'lindsay.walton@example.com',
+    phone: 'Front-end Developer',
+    employees: 'Member',
+    status: 'Contacted',
+  },
+  {
+    LinkedInFullName: 'Lindsay Walton',
+    title: 'Front-end Developer',
+    company: 'Front-end Developer',
+    location: 'Paris',
+    email: 'lindsay.walton@example.com',
+    phone: 'Front-end Developer',
+    employees: 'Member',
+    status: 'Contacted',
+  },
+  {
+    LinkedInFullName: 'Lindsay Walton',
+    title: 'Front-end Developer',
+    company: 'Front-end Developer',
+    location: 'Paris',
+    email: 'lindsay.walton@example.com',
+    phone: 'Front-end Developer',
+    employees: 'Member',
+    status: 'Contacted',
+  },
+  // More people...
+]
+
+export default function Contacts() {
+  const checkbox = useRef<HTMLInputElement>(null);
+  const [checked, setChecked] = useState(false)
+  const [indeterminate, setIndeterminate] = useState(false)
+  const [selectedPeople, setSelectedPeople] = useState<Person[]>([]);
+
+  const [step, setStep] = useState<number>(1);
+
+  useLayoutEffect(() => {
+    const isIndeterminate = selectedPeople.length > 0 && selectedPeople.length < people.length;
+    setChecked(selectedPeople.length === people.length);
+    setIndeterminate(isIndeterminate);
+    if (checkbox.current) { // Add this check
+      checkbox.current.indeterminate = isIndeterminate;
+    }
+  }, [selectedPeople]);
+
+  function toggleAll() {
+    setSelectedPeople(checked || indeterminate ? [] : people)
+    setChecked(!checked && !indeterminate)
+    setIndeterminate(false)
+  }
+
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const session = useSession();
+  const supabase = useSupabaseClient();
+  const router = useRouter();
+  const user = useUser();
+  const [isUsageLimitReached, setIsUsageLimitReached] = useState(false);
+  const [notification, notify] = useNotification();
+  const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState<boolean>(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+
+  // This is the switch part  - from csv or linkedin...
+  // isImportedFromLinkedIn is true ====>
+  const [isImportedFromLinkedIn, setIsImportedFromLinkedIn] = useState<boolean>(true);
+
+  const [campaigns, setCampaigns] = useState<
+    Array<{
+      campaign_id: number | string;
+      campaign_name: string | null;
+    }>
+  >([]);
+
+  const getProfile = useCallback(async () => {
+    try {
+      setLoading(true);
+      if (!user) {
+        console.log('no user');
+        return; // Early return if no user
+      }
+
+      // Fetch campaigns related to the user
+      let { data: campaignData, error: campaignError, status: campaignStatus } = await supabase
+        .from('campaigns')
+        .select(`campaign_name, campaign_id`)
+        .eq('user_id', user?.id);
+
+      if (campaignError && campaignStatus !== 406) {
+        (notify as (type: string, message: string, description: string) => void)(
+          'error',
+          'Problem fetching your campaigns',
+          'Please refresh the page',
+        );
+      }
+
+
+      // Fetch user profile information
+      let { data: userData, error: userError } = await supabase
+        .from('users')
+        .select(`id, user_name, user_linkedinprofile`)
+        .eq('id', user?.id);
+
+      if (userError) {
+        (notify as (type: string, message: string, description: string) => void)(
+          'error',
+          'Problem fetching your user data',
+          'Please refresh the page',
+        );
+        console.log(userError)
+      }
+
+      // You can set this userData to a state or handle it as needed
+      // ...
+    } catch (campaignError) {
+      alert('Error loading user data!');
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
+
+  // useEffect(() => {
+  //   const { data: authListener } = supabase.auth.onAuthStateChange(
+  //     async (event, session) => {
+  //       console.log("this is logging session and session.user", session && session.user);
+  //       if (session && session.user) {
+  //         getProfile();
+  //       } 
+  //       else {
+  //         router.push('/login');
+  //       }
+  //     }
+  //   );
+
+  //   // Cleanup function: removes the listener when the component is unmounted
+  //   return () => {
+  //     authListener.subscription.unsubscribe();
+  //   };
+  // }, [getProfile, supabase.auth, router, user]);
+
+  useEffect(() => {
+    const handleWindowResize = () => {
+      setIsMobile(window.innerWidth < 640);
+    };
+
+    // Add event listener to window resize
+    window.addEventListener('resize', handleWindowResize);
+
+    // Call the resize handler initially
+    handleWindowResize();
+
+    // Clean up the event listener on component unmount
+    return () => {
+      window.removeEventListener('resize', handleWindowResize);
+    };
+  }, []);
+
+  console.log("da", step)
+
+  return (
+    <div className='w-full'>
+      {notification as JSX.Element}
+      <Navbar sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} modalOpen={open} step={step} />
+      {!sidebarOpen &&
+        <main className={`h-auto min-h-screen relative`}>
+          <section className='lg:pl-72 absolute top-0 right-0 bottom-0 left-0 m-auto '>
+            {/* {
+              step == 1 && <ImportContact setStep={setStep} />
+            }
+            {
+              step == 2 && <UploadFile setStep={setStep} step={step} />
+            } */}
+            {
+              step == 3 && <MainContent step={step} open={open} setOpen={setOpen} />
+            }
+
+            {
+              (isImportedFromLinkedIn && step == 1) && 
+              <FromLinkedIn setStep={setStep}/>
+            }
+
+            {
+              (isImportedFromLinkedIn && step == 2) &&
+              <FromLinkedinExtractProfile setStep={setStep}/>
+            }
+          </section>
+        </main>
+      }
+    </div>
+  );
+}
